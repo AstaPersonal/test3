@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type SupportedLanguage = "en" | "de";
-type StudyMode = "fi_to_target" | "target_to_fi" | "multiple_choice" | "fill_missing";
+type StudyMode = "fi_to_target" | "target_to_fi" | "multiple_choice";
 
 type WordEntry = {
   id: string;
@@ -33,7 +33,6 @@ type StudyQuestion = {
   prompt: string;
   expectedAnswer: string;
   choices?: string[];
-  maskedAnswer?: string;
 };
 
 type WrongAnswerLog = {
@@ -119,18 +118,6 @@ function shuffleArray<T>(items: T[]): T[] {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
-}
-
-function toMaskedWord(word: string): string {
-  if (word.length <= 3) {
-    return `${word[0]}_`;
-  }
-
-  const start = word.slice(0, 1);
-  const end = word.slice(-1);
-  const middle = "_".repeat(Math.max(1, word.length - 2));
-
-  return `${start}${middle}${end}`;
 }
 
 function withProgress(entry: Omit<WordEntry, "streak" | "intervalDays" | "dueAt" | "lastReviewedAt" | "correctAnswers" | "wrongAnswers" | "listId"> & Partial<WordEntry>): WordEntry {
@@ -318,7 +305,7 @@ export default function Home() {
       setQuestion({
         wordId: entry.id,
         askedWord: entry.fi,
-        prompt: `Mikä on sanan \"${entry.fi}\" ${language === "en" ? "englanniksi" : "saksaksi"}?`,
+        prompt: `Mikä on sana \"${entry.fi}\" ${language === "en" ? "englanniksi" : "saksaksi"}?`,
         expectedAnswer: entry.target,
       });
     }
@@ -340,16 +327,6 @@ export default function Home() {
         prompt: `Valitse oikea käännös sanalle \"${entry.fi}\"`,
         expectedAnswer: entry.target,
         choices,
-      });
-    }
-
-    if (mode === "fill_missing") {
-      setQuestion({
-        wordId: entry.id,
-        askedWord: entry.fi,
-        prompt: `Täydennä sana: ${toMaskedWord(entry.target)}`,
-        expectedAnswer: entry.target,
-        maskedAnswer: toMaskedWord(entry.target),
       });
     }
 
@@ -582,7 +559,6 @@ export default function Home() {
             <option value="fi_to_target">Suomi -&gt; vieras kieli</option>
             <option value="target_to_fi">Vieras kieli -&gt; suomi</option>
             <option value="multiple_choice">Monivalinta</option>
-            <option value="fill_missing">Puuttuva sana</option>
           </select>
           <button
             type="button"
