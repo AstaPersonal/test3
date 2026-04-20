@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type SupportedLanguage = "en" | "de";
 type StudyMode = "fi_to_target" | "target_to_fi" | "multiple_choice" | "fill_missing";
@@ -17,13 +17,6 @@ type WordEntry = {
   lastReviewedAt: string | null;
   correctAnswers: number;
   wrongAnswers: number;
-};
-
-type WordList = {
-  id: string;
-  title: string;
-  language: SupportedLanguage;
-  createdAt: string;
 };
 
 type ImportDraft = {
@@ -43,18 +36,8 @@ type StudyQuestion = {
 };
 
 const STORAGE_KEY_WORDS = "sanatreeni.v1.words";
-const STORAGE_KEY_LISTS = "sanatreeni.v1.lists";
 
 const DEFAULT_LIST_ID = "default-list";
-
-const EXAMPLE_LISTS: WordList[] = [
-  {
-    id: DEFAULT_LIST_ID,
-    title: "Esimerkit",
-    language: "en",
-    createdAt: new Date().toISOString(),
-  },
-];
 
 const EXAMPLE_WORDS: WordEntry[] = [
   {
@@ -112,6 +95,7 @@ const EXAMPLE_WORDS: WordEntry[] = [
 ];
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const AUTO_NEXT_DELAY_MS = 700;
 
 function normalizeWord(value: string): string {
   return value
@@ -173,41 +157,13 @@ function getNextIntervalDays(word: WordEntry, isCorrect: boolean): number {
   return Math.min(30, Math.max(1, Math.round(word.intervalDays * 1.8 + 1)));
 }
 
-function formatDueLabel(dueAt: string | null, now: number): string {
-  if (!dueAt) {
-    return "uusi";
-  }
-
-  const dueTime = new Date(dueAt).getTime();
-  if (Number.isNaN(dueTime) || dueTime <= now) {
-    return "nyt";
-  }
-
-  const days = Math.ceil((dueTime - now) / DAY_IN_MS);
-  return `${days} pv`;
+function pickRandomItem<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
 }
 
 export default function Home() {
   const [language, setLanguage] = useState<SupportedLanguage>("en");
-  const [lists, setLists] = useState<WordList[]>(() => {
-    if (typeof window === "undefined") {
-      return EXAMPLE_LISTS;
-    }
-
-    const saved = window.localStorage.getItem(STORAGE_KEY_LISTS);
-    if (!saved) {
-      return EXAMPLE_LISTS;
-    }
-
-    try {
-      const parsed = JSON.parse(saved) as WordList[];
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : EXAMPLE_LISTS;
-    } catch {
-      window.localStorage.removeItem(STORAGE_KEY_LISTS);
-      return EXAMPLE_LISTS;
-    }
-  });
-  const [selectedListId, setSelectedListId] = useState<string>(DEFAULT_LIST_ID);
+  const selectedListId = DEFAULT_LIST_ID;
   const [words, setWords] = useState<WordEntry[]>(() => {
     if (typeof window === "undefined") {
       return EXAMPLE_WORDS;
@@ -229,9 +185,6 @@ export default function Home() {
 
     return EXAMPLE_WORDS;
   });
-  const [fiInput, setFiInput] = useState("");
-  const [targetInput, setTargetInput] = useState("");
-  const [bulkInput, setBulkInput] = useState("");
   const [mode, setMode] = useState<StudyMode>("fi_to_target");
   const [question, setQuestion] = useState<StudyQuestion | null>(null);
   const [answer, setAnswer] = useState("");
@@ -243,15 +196,10 @@ export default function Home() {
   const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [importDrafts, setImportDrafts] = useState<ImportDraft[]>([]);
-  const [newListTitle, setNewListTitle] = useState("");
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(words));
   }, [words]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_LISTS, JSON.stringify(lists));
-  }, [lists]);
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
@@ -261,14 +209,9 @@ export default function Home() {
     return () => window.clearInterval(timerId);
   }, []);
 
-  const availableLists = useMemo(
-    () => lists.filter((list) => list.language === language),
-    [lists, language],
-  );
-
   const filteredWords = useMemo(
-    () => words.filter((word) => word.language === language && word.listId === selectedListId),
-    [language, words, selectedListId],
+    () => words.filter((word) => word.language === language),
+    [language, words],
   );
 
   const dueWords = useMemo(() => {
@@ -283,36 +226,6 @@ export default function Home() {
       .slice(0, 5),
     [filteredWords],
   );
-
-  function createList(title: string) {
-    const trimmed = title.trim();
-    if (!trimmed) {
-      return;
-    }
-
-    const newList: WordList = {
-      id: crypto.randomUUID(),
-      title: trimmed,
-      language,
-      createdAt: new Date().toISOString(),
-    };
-
-    setLists((current) => [...current, newList]);
-    setSelectedListId(newList.id);
-  }
-
-  function deleteList(listId: string) {
-    if (listId === DEFAULT_LIST_ID) {
-      return;
-    }
-
-    setLists((current) => current.filter((list) => list.id !== listId));
-    setWords((current) => current.filter((word) => word.listId !== listId));
-
-    if (selectedListId === listId) {
-      setSelectedListId(DEFAULT_LIST_ID);
-    }
-  }
 
   function addWords(entries: Array<{ fi: string; target: string; language: SupportedLanguage }>) {
     const normalizedEntries = entries.reduce<WordEntry[]>((result, entry) => {
@@ -345,37 +258,6 @@ export default function Home() {
     }
 
     setWords((current) => [...normalizedEntries.reverse(), ...current]);
-  }
-
-  function addWord(fi: string, target: string) {
-    addWords([{ fi, target, language }]);
-  }
-
-  function onSingleWordSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    addWord(fiInput, targetInput);
-    setFiInput("");
-    setTargetInput("");
-  }
-
-  function onBulkSubmit() {
-    const lines = bulkInput
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    const entries: Array<{ fi: string; target: string; language: SupportedLanguage }> = [];
-
-    for (const line of lines) {
-      const [fi, target] = line.split(/[;,-]/).map((item) => item.trim());
-      if (fi && target) {
-        entries.push({ fi, target, language });
-      }
-    }
-
-    addWords(entries);
-
-    setBulkInput("");
   }
 
   function updateImportDraft(id: string, field: "fi" | "target", value: string) {
@@ -424,7 +306,7 @@ export default function Home() {
     const candidatePool = (dueWords.length > 0 ? dueWords : [...filteredWords].sort(
       (left, right) => getPriority(right, nowTimestamp) - getPriority(left, nowTimestamp),
     )).slice(0, 5);
-    const entry = candidatePool[Math.floor(Math.random() * candidatePool.length)];
+    const entry = pickRandomItem(candidatePool);
     const distractors = shuffleArray(
       filteredWords.filter((item) => item.id !== entry.id).map((item) => item.target),
     ).slice(0, 3);
@@ -510,6 +392,10 @@ export default function Home() {
         ? "Jes, oikein!"
         : `Melkein! Oikea vastaus oli: ${question.expectedAnswer}`,
     );
+
+    window.setTimeout(() => {
+      createQuestion();
+    }, AUTO_NEXT_DELAY_MS);
   }
 
   async function importFromImage() {
@@ -575,12 +461,12 @@ export default function Home() {
         </p>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <article className="rounded-3xl bg-white/85 p-5 shadow-lg ring-1 ring-amber-100 backdrop-blur">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-amber-950">Sanalista</h2>
+      <section className="grid gap-6">
+        <article className="rounded-3xl bg-white/85 p-5 shadow-lg ring-1 ring-fuchsia-100 backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xl font-semibold text-fuchsia-950">Kuvasta sanalistaksi</h2>
             <select
-              className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm"
+              className="rounded-xl border border-fuchsia-300 bg-white px-3 py-2 text-sm"
               value={language}
               onChange={(event) => setLanguage(event.target.value as SupportedLanguage)}
             >
@@ -588,139 +474,6 @@ export default function Home() {
               <option value="de">Saksa</option>
             </select>
           </div>
-
-          <div className="mt-4 rounded-2xl bg-amber-50 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium text-amber-900">Valitse lista:</p>
-              {availableLists.length > 1 && (
-                <button
-                  type="button"
-                  className="rounded-lg border border-amber-300 px-2 py-1 text-xs font-semibold text-amber-900 hover:bg-white"
-                  onClick={() => {
-                    const listId = availableLists.find((l) => l.id !== selectedListId)?.id;
-                    if (listId) setSelectedListId(listId);
-                  }}
-                >
-                  Vaihda listaa
-                </button>
-              )}
-            </div>
-            <div className="mt-2 space-y-1">
-              {availableLists.map((list) => (
-                <div key={list.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-2">
-                  <button
-                    type="button"
-                    className={`flex-1 text-left text-sm font-medium ${
-                      list.id === selectedListId
-                        ? "text-amber-950 font-semibold"
-                        : "text-amber-900 hover:text-amber-950"
-                    }`}
-                    onClick={() => setSelectedListId(list.id)}
-                  >
-                    {list.title}
-                    {list.id === selectedListId && <span className="ml-2 text-amber-600">✓</span>}
-                  </button>
-                  {list.id !== DEFAULT_LIST_ID && (
-                    <button
-                      type="button"
-                      className="ml-2 rounded-lg border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50"
-                      onClick={() => deleteList(list.id)}
-                    >
-                      Poista
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 flex gap-2">
-              <input
-                type="text"
-                className="flex-1 rounded-lg border border-amber-200 px-3 py-2 text-sm"
-                placeholder="Uuden listan nimi"
-                value={newListTitle}
-                onChange={(event) => setNewListTitle(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    createList(newListTitle);
-                    setNewListTitle("");
-                  }
-                }}
-              />
-              <button
-                type="button"
-                className="rounded-lg border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-white"
-                onClick={() => {
-                  createList(newListTitle);
-                  setNewListTitle("");
-                }}
-              >
-                Luo
-              </button>
-            </div>
-          </div>
-
-          <form className="mt-4 grid gap-3" onSubmit={onSingleWordSubmit}>
-            <input
-              className="rounded-xl border border-amber-200 px-3 py-2"
-              placeholder="Suomeksi"
-              value={fiInput}
-              onChange={(event) => setFiInput(event.target.value)}
-            />
-            <input
-              className="rounded-xl border border-amber-200 px-3 py-2"
-              placeholder={language === "en" ? "Englanniksi" : "Saksaksi"}
-              value={targetInput}
-              onChange={(event) => setTargetInput(event.target.value)}
-            />
-            <button
-              type="submit"
-              className="rounded-xl bg-amber-500 px-4 py-2 font-semibold text-amber-950 hover:bg-amber-400"
-            >
-              Lisää sana
-            </button>
-          </form>
-
-          <div className="mt-4 rounded-2xl bg-amber-50 p-3">
-            <p className="text-sm font-medium text-amber-900">Massalisäys (rivi per sana):</p>
-            <p className="text-xs text-amber-800">Muoto: suomi;target</p>
-            <textarea
-              className="mt-2 min-h-28 w-full rounded-xl border border-amber-200 p-3"
-              value={bulkInput}
-              onChange={(event) => setBulkInput(event.target.value)}
-              placeholder={"koira;dog\nkirja;book"}
-            />
-            <button
-              type="button"
-              className="mt-2 rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
-              onClick={onBulkSubmit}
-            >
-              Lisää kaikki rivit
-            </button>
-          </div>
-
-          <div className="mt-4 max-h-56 overflow-auto rounded-2xl border border-amber-100 bg-white p-3">
-            {filteredWords.length === 0 ? (
-              <p className="text-sm text-amber-900/80">Ei sanoja tässä kielessä vielä.</p>
-            ) : (
-              <ul className="space-y-2 text-sm">
-                {filteredWords.map((word) => (
-                  <li key={word.id} className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2">
-                    <div>
-                      <span className="font-medium text-amber-950">{word.fi}</span>
-                      <span className="ml-2 text-amber-800">{word.target}</span>
-                    </div>
-                    <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-amber-900">
-                      {formatDueLabel(word.dueAt, nowTimestamp)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </article>
-
-        <article className="rounded-3xl bg-white/85 p-5 shadow-lg ring-1 ring-fuchsia-100 backdrop-blur">
-          <h2 className="text-xl font-semibold text-fuchsia-950">Kuvasta sanalistaksi</h2>
           <p className="mt-2 text-sm text-fuchsia-900">
             Ota kuva kirjasta. API yrittää tunnistaa suomi-{language === "en" ? "englanti" : "saksa"}
             sanaparit automaattisesti.
