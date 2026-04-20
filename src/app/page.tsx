@@ -29,10 +29,18 @@ type ImportDraft = {
 
 type StudyQuestion = {
   wordId: string;
+  askedWord: string;
   prompt: string;
   expectedAnswer: string;
   choices?: string[];
   maskedAnswer?: string;
+};
+
+type WrongAnswerLog = {
+  id: string;
+  askedWord: string;
+  givenAnswer: string;
+  correctAnswer: string;
 };
 
 const STORAGE_KEY_WORDS = "sanatreeni.v1.words";
@@ -95,7 +103,6 @@ const EXAMPLE_WORDS: WordEntry[] = [
 ];
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
-const AUTO_NEXT_DELAY_MS = 700;
 
 function normalizeWord(value: string): string {
   return value
@@ -187,9 +194,11 @@ export default function Home() {
   });
   const [mode, setMode] = useState<StudyMode>("fi_to_target");
   const [question, setQuestion] = useState<StudyQuestion | null>(null);
+  const [hasAnsweredCurrent, setHasAnsweredCurrent] = useState(false);
   const [answer, setAnswer] = useState("");
   const [feedback, setFeedback] = useState("");
   const [score, setScore] = useState({ correct: 0, total: 0 });
+  const [wrongAnswerLog, setWrongAnswerLog] = useState<WrongAnswerLog[]>([]);
   const [nowTimestamp, setNowTimestamp] = useState(() => Date.now());
   const [ocrFile, setOcrFile] = useState<File | null>(null);
   const [ocrInputKey, setOcrInputKey] = useState(0);
@@ -219,13 +228,6 @@ export default function Home() {
       .filter((word) => !word.dueAt || new Date(word.dueAt).getTime() <= nowTimestamp)
       .sort((left, right) => getPriority(right, nowTimestamp) - getPriority(left, nowTimestamp));
   }, [filteredWords, nowTimestamp]);
-
-  const hardestWords = useMemo(
-    () => [...filteredWords]
-      .sort((left, right) => right.wrongAnswers - left.wrongAnswers || left.streak - right.streak)
-      .slice(0, 5),
-    [filteredWords],
-  );
 
   function addWords(entries: Array<{ fi: string; target: string; language: SupportedLanguage }>) {
     const normalizedEntries = entries.reduce<WordEntry[]>((result, entry) => {
@@ -299,6 +301,7 @@ export default function Home() {
   function createQuestion() {
     if (filteredWords.length < 2) {
       setQuestion(null);
+      setHasAnsweredCurrent(false);
       setFeedback("Lisää vähintään 2 sanaa tähän kieleen.");
       return;
     }
@@ -314,6 +317,7 @@ export default function Home() {
     if (mode === "fi_to_target") {
       setQuestion({
         wordId: entry.id,
+        askedWord: entry.fi,
         prompt: `Mikä on sanan \"${entry.fi}\" ${language === "en" ? "englanniksi" : "saksaksi"}?`,
         expectedAnswer: entry.target,
       });
@@ -322,6 +326,7 @@ export default function Home() {
     if (mode === "target_to_fi") {
       setQuestion({
         wordId: entry.id,
+        askedWord: entry.target,
         prompt: `Mitä \"${entry.target}\" on suomeksi?`,
         expectedAnswer: entry.fi,
       });
@@ -331,6 +336,7 @@ export default function Home() {
       const choices = shuffleArray([entry.target, ...distractors]);
       setQuestion({
         wordId: entry.id,
+        askedWord: entry.fi,
         prompt: `Valitse oikea käännös sanalle \"${entry.fi}\"`,
         expectedAnswer: entry.target,
         choices,
@@ -340,22 +346,25 @@ export default function Home() {
     if (mode === "fill_missing") {
       setQuestion({
         wordId: entry.id,
+        askedWord: entry.fi,
         prompt: `Täydennä sana: ${toMaskedWord(entry.target)}`,
         expectedAnswer: entry.target,
         maskedAnswer: toMaskedWord(entry.target),
       });
     }
 
+    setHasAnsweredCurrent(false);
     setAnswer("");
     setFeedback("");
   }
 
   function submitAnswer(nextAnswer?: string) {
-    if (!question) {
+    if (!question || hasAnsweredCurrent) {
       return;
     }
 
-    const given = normalizeWord(nextAnswer ?? answer);
+    const rawGivenAnswer = (nextAnswer ?? answer).trim();
+    const given = normalizeWord(rawGivenAnswer);
     const expected = normalizeWord(question.expectedAnswer);
     const isCorrect = given === expected;
     const reviewedAt = new Date().toISOString();
@@ -393,9 +402,19 @@ export default function Home() {
         : `Melkein! Oikea vastaus oli: ${question.expectedAnswer}`,
     );
 
-    window.setTimeout(() => {
-      createQuestion();
-    }, AUTO_NEXT_DELAY_MS);
+    if (!isCorrect) {
+      setWrongAnswerLog((current) => [
+        {
+          id: crypto.randomUUID(),
+          askedWord: question.askedWord,
+          givenAnswer: rawGivenAnswer || "(ei vastausta)",
+          correctAnswer: question.expectedAnswer,
+        },
+        ...current,
+      ]);
+    }
+
+    setHasAnsweredCurrent(true);
   }
 
   async function importFromImage() {
@@ -577,26 +596,11 @@ export default function Home() {
         <p className="mt-3 text-sm font-medium text-sky-900">
           Pisteet: {score.correct} / {score.total}
         </p>
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <div className="mt-3 grid gap-3">
           <div className="rounded-2xl border border-sky-100 bg-white p-3">
             <p className="text-sm font-semibold text-sky-950">Treenaa nyt</p>
             <p className="mt-1 text-2xl font-bold text-sky-900">{dueWords.length}</p>
             <p className="text-xs text-sky-900/70">Sanat, jotka kannattaa kerrata seuraavaksi</p>
-          </div>
-          <div className="rounded-2xl border border-sky-100 bg-white p-3">
-            <p className="text-sm font-semibold text-sky-950">Haastavimmat sanat</p>
-            {hardestWords.length === 0 ? (
-              <p className="mt-2 text-xs text-sky-900/70">Tietoa kertyy kun harjoittelette.</p>
-            ) : (
-              <ul className="mt-2 space-y-2 text-sm">
-                {hardestWords.map((word) => (
-                  <li key={word.id} className="flex items-center justify-between rounded-lg bg-sky-50 px-3 py-2">
-                    <span className="font-medium text-sky-950">{word.fi} - {word.target}</span>
-                    <span className="text-xs font-semibold text-sky-900">virheet {word.wrongAnswers}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
         </div>
 
@@ -610,8 +614,9 @@ export default function Home() {
                   <button
                     key={choice}
                     type="button"
-                    className="rounded-xl border border-sky-300 bg-white px-3 py-2 text-left text-sky-950 hover:bg-sky-100"
+                    className="rounded-xl border border-sky-300 bg-white px-3 py-2 text-left text-sky-950 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
                     onClick={() => submitAnswer(choice)}
+                    disabled={hasAnsweredCurrent}
                   >
                     {choice}
                   </button>
@@ -630,10 +635,12 @@ export default function Home() {
                   value={answer}
                   onChange={(event) => setAnswer(event.target.value)}
                   placeholder="Kirjoita vastaus"
+                  disabled={hasAnsweredCurrent}
                 />
                 <button
                   type="submit"
-                  className="rounded-xl bg-sky-500 px-4 py-2 font-semibold text-white hover:bg-sky-600"
+                  className="rounded-xl bg-sky-500 px-4 py-2 font-semibold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={hasAnsweredCurrent}
                 >
                   Tarkista
                 </button>
@@ -641,10 +648,44 @@ export default function Home() {
             )}
 
             {feedback ? <p className="mt-3 text-sm font-medium text-sky-900">{feedback}</p> : null}
+            {hasAnsweredCurrent ? (
+              <button
+                type="button"
+                className="mt-3 rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+                onClick={createQuestion}
+              >
+                Seuraava sana
+              </button>
+            ) : null}
           </div>
         ) : (
           <p className="mt-4 text-sm text-sky-900/80">Paina &quot;Uusi kysymys&quot; aloittaaksesi.</p>
         )}
+
+        {score.total > 0 ? (
+          <div className="mt-4 rounded-2xl border border-sky-100 bg-white p-4">
+            <p className="text-sm font-semibold text-sky-950">Testin yhteenveto</p>
+            <div className="mt-2 flex flex-wrap gap-4 text-sm font-semibold">
+              <p className="text-emerald-700">Oikeat vastaukset: {score.correct} / {score.total}</p>
+              <p className="text-rose-700">Väärät vastaukset: {score.total - score.correct} / {score.total}</p>
+            </div>
+
+            {wrongAnswerLog.length > 0 ? (
+              <div className="mt-3">
+                <p className="text-sm font-semibold text-sky-950">Väärin menneet kohdat</p>
+                <ul className="mt-2 space-y-2 text-sm">
+                  {wrongAnswerLog.map((item) => (
+                    <li key={item.id} className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2">
+                      <p className="font-medium text-sky-950">Kysytty sana: {item.askedWord}</p>
+                      <p className="text-rose-700">Lapsen vastaus: {item.givenAnswer}</p>
+                      <p className="text-emerald-700">Oikea vastaus: {item.correctAnswer}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     </main>
   );
