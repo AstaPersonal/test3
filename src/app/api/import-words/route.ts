@@ -43,11 +43,11 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    if (!process.env.AZURE_OPENAI_ENDPOINT || !process.env.AZURE_OPENAI_API_KEY || !process.env.AZURE_OPENAI_DEPLOYMENT_ID) {
       return NextResponse.json(
         {
           message:
-            "OPENAI_API_KEY puuttuu. Lisää avain, jotta kuvasta tunnistus toimii.",
+            "Azure OpenAI asetukset puuttuvat. Lisää AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY ja AZURE_OPENAI_DEPLOYMENT_ID.",
         },
         { status: 501 },
       );
@@ -62,11 +62,16 @@ export async function POST(request: Request) {
         ? "Poimi kuvasta suomi-englanti sanaparit."
         : "Poimi kuvasta suomi-saksa sanaparit.";
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const azureEndpoint = process.env.AZURE_OPENAI_ENDPOINT.replace(/\/$/, "");
+    const deploymentId = process.env.AZURE_OPENAI_DEPLOYMENT_ID;
+    const apiVersion = "2024-08-01-preview";
+    const url = `${azureEndpoint}/openai/deployments/${deploymentId}/chat/completions?api-version=${apiVersion}`;
+
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "api-key": process.env.AZURE_OPENAI_API_KEY,
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
