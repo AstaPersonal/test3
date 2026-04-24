@@ -19,14 +19,6 @@ type WordEntry = {
   wrongAnswers: number;
 };
 
-type ImportDraft = {
-  id: string;
-  fi: string;
-  target: string;
-  language: SupportedLanguage;
-  listId: string;
-};
-
 type StudyQuestion = {
   wordId: string;
   askedWord: string;
@@ -191,7 +183,6 @@ export default function Home() {
   const [ocrInputKey, setOcrInputKey] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
-  const [importDrafts, setImportDrafts] = useState<ImportDraft[]>([]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(words));
@@ -247,42 +238,6 @@ export default function Home() {
     }
 
     setWords((current) => [...normalizedEntries.reverse(), ...current]);
-  }
-
-  function updateImportDraft(id: string, field: "fi" | "target", value: string) {
-    setImportDrafts((current) =>
-      current.map((draft) =>
-        draft.id === id
-          ? {
-              ...draft,
-              [field]: value,
-            }
-          : draft,
-      ),
-    );
-  }
-
-  function removeImportDraft(id: string) {
-    setImportDrafts((current) => current.filter((draft) => draft.id !== id));
-  }
-
-  function commitImportDrafts() {
-    const validDrafts = importDrafts.filter(
-      (draft) => draft.fi.trim() && draft.target.trim(),
-    );
-
-    addWords(validDrafts);
-    setImportDrafts([]);
-    setImportMessage(
-      validDrafts.length > 0
-        ? `Tallennettiin ${validDrafts.length} tarkistettua sanaa.`
-        : "Ei tallennettavia sanoja.",
-    );
-  }
-
-  function discardImportDrafts() {
-    setImportDrafts([]);
-    setImportMessage("Tunnistetut sanat hylättiin.");
   }
 
   function createQuestion() {
@@ -424,19 +379,18 @@ export default function Home() {
       }
 
       const imported = (payload.words ?? []).map((item) => ({
-        id: crypto.randomUUID(),
         fi: item.fi,
         target: item.target,
         language,
-        listId: selectedListId,
       }));
 
-      setImportDrafts(imported);
-      setImportMessage(
-        imported.length > 0
-          ? `Tunnistettiin ${imported.length} sanaa. Tarkista ennen tallennusta.`
-          : "Sanoja ei tunnistettu.",
-      );
+      if (imported.length > 0) {
+        addWords(imported);
+        setImportMessage(`Tallennettiin ${imported.length} sanaa.`);
+      } else {
+        setImportMessage("Sanoja ei tunnistettu.");
+      }
+
       setOcrFile(null);
       setOcrInputKey((current) => current + 1);
     } catch {
@@ -490,58 +444,6 @@ export default function Home() {
             {isImporting ? "Tunnistetaan..." : "Tunnista ja lisää sanat"}
           </button>
           {importMessage ? <p className="mt-2 text-sm text-fuchsia-900">{importMessage}</p> : null}
-          {importDrafts.length > 0 ? (
-            <div className="mt-4 rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-fuchsia-950">Tarkista tunnistetut sanat</p>
-                <p className="text-xs text-fuchsia-900/80">Poista virheelliset rivit tai korjaa teksti.</p>
-              </div>
-              <div className="mt-3 max-h-72 space-y-2 overflow-auto pr-1">
-                {importDrafts.map((draft) => (
-                  <div
-                    key={draft.id}
-                    className="grid gap-2 rounded-xl border border-fuchsia-100 bg-white p-3 sm:grid-cols-[1fr_1fr_auto]"
-                  >
-                    <input
-                      className="rounded-lg border border-fuchsia-200 px-3 py-2 text-sm"
-                      value={draft.fi}
-                      onChange={(event) => updateImportDraft(draft.id, "fi", event.target.value)}
-                      placeholder="Suomeksi"
-                    />
-                    <input
-                      className="rounded-lg border border-fuchsia-200 px-3 py-2 text-sm"
-                      value={draft.target}
-                      onChange={(event) => updateImportDraft(draft.id, "target", event.target.value)}
-                      placeholder={draft.language === "en" ? "Englanniksi" : "Saksaksi"}
-                    />
-                    <button
-                      type="button"
-                      className="rounded-lg border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
-                      onClick={() => removeImportDraft(draft.id)}
-                    >
-                      Poista
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="rounded-xl bg-fuchsia-500 px-4 py-2 text-sm font-semibold text-white hover:bg-fuchsia-600"
-                  onClick={commitImportDrafts}
-                >
-                  Tallenna tarkistetut sanat
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl border border-fuchsia-200 px-4 py-2 text-sm font-semibold text-fuchsia-950 hover:bg-white"
-                  onClick={discardImportDrafts}
-                >
-                  Hylkää tuonti
-                </button>
-              </div>
-            </div>
-          ) : null}
           <p className="mt-4 text-xs text-fuchsia-900/80">
             Huom: lisää OPENAI_API_KEY ympäristömuuttujaan, jotta kuvatunnistus toimii.
           </p>
